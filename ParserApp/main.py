@@ -26,7 +26,7 @@ warnings.filterwarnings("ignore", message=".*The copy keyword is deprecated.*")
 # Increment this when you are ready to publish a new version on GitHub
 CURRENT_VERSION = "v1.7" 
 # Format: "YourGitHubUsername/YourRepoName" (e.g., "ankit-negi/telemetry-parser")
-REPO = "YourUsername/YourRepoName" 
+REPO = "Ankit023090/Battery_Parser_Release" 
 
 # --- 2. AUTO-UPDATER FUNCTIONS ---
 def check_for_updates():
@@ -97,9 +97,6 @@ def launch_telemetry_dashboard():
     print(f"--- High-Performance Data Visualization Dashboard ({CURRENT_VERSION}) ---")
     print("Loading drive cycle telemetry...")
     # Your custom GUI code goes here...
-    
-    # To keep the console open for testing:
-    input("Press Enter to exit...")
 
 
 # --- 4. EXECUTION SEQUENCE ---
@@ -1131,7 +1128,7 @@ def generate_summary(df, target_dir):
         "SoC Delta (Max jump/drop)": [f"Jump: {max_soc_jump_val} / Drop: {max_soc_drop_val}"],
         "Shutdown Routine Sec": [shutdown_comm_val],
         "Precharge Process Check": [precharge_fail_val],
-        "1st Vmin(@SOC) 2700mV": [first_vmin_2700_val],
+        "1st Vmin(@SOC) 2700mV": [first_soc_2700_val_soc],
         "Contactor Weld": [contactor_weld_val],
         "State Transition BMS Behaviour": [transition_val],
         "Cycle Count BMS (cycles)": [cycle_count_val],
