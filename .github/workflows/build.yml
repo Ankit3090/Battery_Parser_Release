@@ -16,7 +16,7 @@ jobs:
     - name: Install Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.11' # Best stability for PyInstaller
+        python-version: '3.11' 
 
     - name: Install Dependencies
       run: |
@@ -31,6 +31,6 @@ jobs:
     - name: Upload to GitHub Releases
       uses: softprops/action-gh-release@v1
       with:
-        files: dist/main.exe
+        files: ParserApp/dist/main.exe
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
