@@ -14,18 +14,11 @@ import requests
 import subprocess
 import time
 
-# =============================================================================
-# --- 0. TERMINAL CLEANUP (Professional Output) ---
-# =============================================================================
-warnings.simplefilter(action='ignore', category=pd.errors.PerformanceWarning)
-warnings.simplefilter(action='ignore', category=FutureWarning)
-warnings.simplefilter(action='ignore', category=UserWarning)
-warnings.filterwarnings("ignore", message=".*The copy keyword is deprecated.*")
 
 # --- 1. CONFIGURATION ---
 # Increment this when you are ready to publish a new version on GitHub
 CURRENT_VERSION = "v1.7" 
-# Format: "YourGitHubUsername/YourRepoName" (e.g., "ankit-negi/telemetry-parser")
+# Format: "YourGitHubUsername/YourRepoName" 
 REPO = "Ankit023090/Battery_Parser_Release" 
 
 # --- 2. AUTO-UPDATER FUNCTIONS ---
@@ -56,12 +49,46 @@ def check_for_updates():
 def download_update(url):
     try:
         response = requests.get(url, stream=True, timeout=10)
+        total_size_bytes = int(response.headers.get('content-length', 0))
+        
+        # --- Steam-Style Updater GUI ---
+        updater_win = tk.Tk()
+        updater_win.title("Software Update")
+        updater_win.geometry("450x130")
+        updater_win.resizable(False, False)
+        updater_win.eval('tk::PlaceWindow . center') # Centers window on screen
+        
+        lbl_status = tk.Label(updater_win, text="Updating Parser...", font=("Arial", 10))
+        lbl_status.pack(anchor="w", padx=20, pady=(15, 5))
+        
+        progress = ttk.Progressbar(updater_win, orient="horizontal", length=410, mode="determinate")
+        progress.pack(padx=20, pady=5)
+        
+        lbl_bytes = tk.Label(updater_win, text="Downloading update...", font=("Arial", 9), fg="gray")
+        lbl_bytes.pack(anchor="w", padx=20)
+
         new_exe_name = "parser_update_temp.exe"
+        downloaded_bytes = 0
         
         with open(new_exe_name, "wb") as f:
             for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
-                
+                if chunk:
+                    f.write(chunk)
+                    downloaded_bytes += len(chunk)
+                    
+                    # Calculate percentage and format kilobytes
+                    if total_size_bytes > 0:
+                        percent = (downloaded_bytes / total_size_bytes) * 100
+                        progress["value"] = percent
+                        
+                        dl_kb = downloaded_bytes // 1024
+                        tot_kb = total_size_bytes // 1024
+                        lbl_bytes.config(text=f"Downloading update ({dl_kb:,} of {tot_kb:,} KB)...")
+                    
+                    # Force the window to refresh instantly
+                    updater_win.update()
+                    
+        updater_win.destroy()
         apply_update(new_exe_name)
     except Exception as e:
         print(f"Failed to download update: {e}")
@@ -101,13 +128,19 @@ def launch_telemetry_dashboard():
 
 # --- 4. EXECUTION SEQUENCE ---
 if __name__ == "__main__":
-    # getattr(sys, 'frozen', False) checks if we are running as a compiled .exe
-    # We only want to trigger the updater if it's the actual .exe, not while you are testing raw Python code
     if getattr(sys, 'frozen', False): 
         check_for_updates()
         
     # If no updates were found (or if the update check finished), launch the main app
     launch_telemetry_dashboard()
+
+# =============================================================================
+# --- 0. TERMINAL CLEANUP (Professional Output) ---
+# =============================================================================
+warnings.simplefilter(action='ignore', category=pd.errors.PerformanceWarning)
+warnings.simplefilter(action='ignore', category=FutureWarning)
+warnings.simplefilter(action='ignore', category=UserWarning)
+warnings.filterwarnings("ignore", message=".*The copy keyword is deprecated.*")
 
 
 # =============================================================================
@@ -193,13 +226,15 @@ def extract_number(fname):
     match = re.search(r'(\d+)(?!.*\d)', fname) 
     return int(match.group(1)) if match else 0
 
-def decode_trc_file(trc_path, dbc, dbc_signal_order):
+def decode_trc_file(trc_path, dbc, dbc_signal_order, gui_callback=None):
     with open(trc_path, 'r', errors='ignore') as f:
         lines = f.readlines()
 
     print(f"\n--- Processing: {os.path.basename(trc_path)} ---")
     
     file_version, col_map, start_time_str = extract_headers(lines)
+    total_lines = len(lines)
+
     
     start_time = datetime.now()
     if start_time_str:
@@ -243,8 +278,9 @@ def decode_trc_file(trc_path, dbc, dbc_signal_order):
     stats_matched_ids = 0
     stats_decoded = 0
     debug_errors = []
+
     
-    for line in lines:
+    for i, line in enumerate(lines):
         line = line.strip()
         if not line or line.startswith(';') or line.startswith('---'): continue
         if not re.match(r'^\d', line): continue
@@ -340,6 +376,10 @@ def decode_trc_file(trc_path, dbc, dbc_signal_order):
                 debug_errors.append(f"Row Error: {e} -> on line: {line}")
             continue
 
+        if gui_callback and (i % 10000 == 0):
+            gui_callback(os.path.basename(trc_path), i, total_lines)
+    if gui_callback:
+        gui_callback(os.path.basename(trc_path), total_lines, total_lines)
     print(f"  -> Valid CAN Rows Found: {stats_total_lines}")
     print(f"  -> Rows Matched to DBC:  {stats_matched_ids}")
     print(f"  -> Rows Fully Decoded:   {stats_decoded}")
@@ -418,7 +458,6 @@ def decode_trc_file(trc_path, dbc, dbc_signal_order):
                 sig_name: signal_store[sig_name]
             })
             
-            # Clean up raw signal data so it can be merged safely
             temp_df = temp_df.dropna(subset=['Time_ms'])
             temp_df = temp_df.sort_values('Time_ms')
             # If multiple frames arrived in the exact same millisecond, keep the most recent one
@@ -427,7 +466,6 @@ def decode_trc_file(trc_path, dbc, dbc_signal_order):
             # merge_asof perfectly slots the most recent CAN frame into the 100ms grid
             df = pd.merge_asof(df, temp_df, on='Time_ms', direction='backward')
         else:
-            # If the DBC has a signal but it never fired in this TRC, fill it with blanks
             df[sig_name] = np.nan
 
     df = df.drop(columns=['Time_ms'])
@@ -504,6 +542,8 @@ def generate_summary(df, target_dir):
     vcu_cmd_col        = 'Shutdown_command'       
     bms_ack_col        = 'Shutdown_ack_flag'  
     efuse_col          = 'EFUSE_DISCHG_ERROR' 
+    uv_error_col       = 'UV_ERROR'
+
     
     date_col           = 'Date'
     time_col           = 'Time'
@@ -650,6 +690,7 @@ def generate_summary(df, target_dir):
     peak_discharge_current_val = 0.0
     max_regen_current_val = 0.0
     peak_discharge_ready_val = "Battery didn't go to state '2'"
+    peak_discharge_ready_val_soc = "Battery didn't go to state '2" 
 
     orig_discharge_mask = df[current_col] < 0
     orig_regen_mask = df[current_col] > 0
@@ -670,7 +711,8 @@ def generate_summary(df, target_dir):
             if pd.notna(min_val) and min_val < 0:
                 min_idx = ready_df[current_col].idxmin()
                 soc_at_min = df.loc[min_idx, soc_col] if soc_col in df.columns else 0
-                peak_discharge_ready_val = f"{round(min_val, 2)}A @ {soc_at_min:.1f}%"
+                peak_discharge_ready_val = f"{round(min_val, 2)}"
+                peak_discharge_ready_val_soc= soc_at_min
 
     # --- RANGE, ODO & SOC EXTRACTION ---
     if odo_col in df.columns and not df[odo_col].dropna().empty:
@@ -745,13 +787,11 @@ def generate_summary(df, target_dir):
         # ==========================================================
         # --- 1. RANGE TILL 10% SOC ---
         # ==========================================================
-        # Explicitly ensure mask_10 only triggers in Drive State (3)
         if bms_state_series is not None:
             mask_10 = (clean_soc <= 10) & (bms_state_series == 3)
         else:
             mask_10 = (clean_soc <= 10)
         
-        # Safety: check if it's a Series and has at least one True value
         if isinstance(mask_10, pd.Series) and mask_10.any():
             first_idx_10 = mask_10[mask_10].index[0]
             
@@ -762,19 +802,21 @@ def generate_summary(df, target_dir):
                 range_till_10_val = round(float(odo_at_10) - float(start_odo), 2)
 
       # ==========================================================
-        # --- 2. RANGE BELOW 0% SOC (BMS State 3 Only) ---
+        # --- 2. RANGE BELOW 0.2% SOC (BMS State 3 Only) ---
         # ==========================================================
-        
-        # 1. Define the mask: SOC <= 0 AND BMS State is 3
-        # We ensure bms_state_col is numeric to avoid string-matching crashes
+
+        mask_0_2 = None 
+
+        # 1. Define the mask: SOC <= 0.2 AND BMS State is 3
         if bms_state_col in df.columns:
             bms_state_series = pd.to_numeric(df[bms_state_col], errors='coerce')
-            mask_0 = (clean_soc <= 0) & (bms_state_series == 3)
+            
+            # ---> Change made here: from <= 0 to <= 0.2
+            mask_0_2 = (clean_soc <= 0.1) & (bms_state_series == 3)
 
-        # 2. Safety check: ensure mask is valid
-        if isinstance(mask_0, pd.Series) and mask_0.any():
-            # Get all index numbers where SOC <= 0 AND state == 3
-            zero_indices = mask_0[mask_0].index
+        if isinstance(mask_0_2, pd.Series) and mask_0_2.any():
+
+            zero_indices = mask_0_2[mask_0_2].index
             
             first_idx_0 = zero_indices[0]  
             last_idx_0 = zero_indices[-1]
@@ -791,6 +833,7 @@ def generate_summary(df, target_dir):
     first_vmax_2700_val_vmax = "UV not hit"
     first_vmin_2700_val_vmin = "UV not hit" 
     first_soc_2700_val_soc = "UV not hit"
+    soc_UV = "UV not hit" 
     
     if cell_vmin_col in df.columns and cell_vmax_col in df.columns and soc_col in df.columns:
         mask_2700 = (df[cell_vmin_col] <= 2700.0) & (df[cell_vmin_col] > 500.0)
@@ -829,8 +872,52 @@ def generate_summary(df, target_dir):
             first_vmax_2700_val = f"{vmax_mv}"
             first_vmax_2700_val_vmax = vmax_str
             first_soc_2700_val_soc = val_soc
+  
+    
+    if uv_error_col in df.columns and soc_col in df.columns:
+        mask_uv_error = df[uv_error_col] == 1
+    
+        if mask_uv_error.any():
 
+            first_uv_err_idx = df[mask_uv_error].index[0]
+        
+            soc_UV = df.loc[first_uv_err_idx, soc_col]
 
+    # Initialize variables for the end of the cycle
+    end_vmin_val = "N/A"
+    end_vmin_cell = "N/A"
+    end_vmax_val = "N/A"
+    end_vmax_cell = "N/A"
+
+    if cell_vmin_col in df.columns and cell_vmax_col in df.columns and not df.empty:
+        last_idx = df.index[-1]
+        
+        end_vmin_mv = df.loc[last_idx, cell_vmin_col]
+        end_vmax_mv = df.loc[last_idx, cell_vmax_col]
+        
+        cell_cols = [c for c in df.columns if c.startswith('CellVoltage_')]
+        
+        if cell_cols:
+            row_cells_end = df.loc[last_idx, cell_cols]
+            valid_cells_end = row_cells_end[row_cells_end > 500.0]
+            
+            if not valid_cells_end.empty:
+                matching_vmin_end = valid_cells_end[valid_cells_end == end_vmin_mv]
+                if not matching_vmin_end.empty:
+                    vmin_num_end = str(matching_vmin_end.index[0]).split('_')[-1]
+                else:
+                    vmin_num_end = str(valid_cells_end.astype(float).idxmin()).split('_')[-1]
+                end_vmin_cell = f"Cell {vmin_num_end}"
+                
+                matching_vmax_end = valid_cells_end[valid_cells_end == end_vmax_mv]
+                if not matching_vmax_end.empty:
+                    vmax_num_end = str(matching_vmax_end.index[0]).split('_')[-1]
+                else:
+                    vmax_num_end = str(valid_cells_end.astype(float).idxmax()).split('_')[-1]
+                end_vmax_cell = f"Cell {vmax_num_end}"
+
+        end_vmin_val = f"{end_vmin_mv}"
+        end_vmax_val = f"{end_vmax_mv}"
 
     # --- HEALTH, TEMPS & FAULTS ---
     avg_imbalance_val = "N/A"
@@ -885,7 +972,7 @@ def generate_summary(df, target_dir):
 
     # --- IMBALANCE METRICS ---
     if imbalance_col in df.columns and bms_soc_col in df.columns:
-        low_soc_df = df[df[bms_soc_col] < 99.8]
+        low_soc_df = df[df[bms_soc_col] < 50]
         if not low_soc_df.empty:
             max_imb_low_soc = low_soc_df[imbalance_col].max()
             if pd.notna(max_imb_low_soc):
@@ -899,8 +986,8 @@ def generate_summary(df, target_dir):
                 vmax_at_peak_imb_val = "N/A"
                 vmin_at_peak_imb_val = "N/A"
         else:
-            vmax_at_peak_imb_val = "N/A (SOC never < 85 %)"
-            vmin_at_peak_imb_val = "N/A (SOC never < 85 %)"
+            vmax_at_peak_imb_val = "N/A (SOC never < 50 %)"
+            vmin_at_peak_imb_val = "N/A (SOC never < 50 %)"
             
     if 'Voltage_Delta' in df.columns:
         avg_imbalance_val = round(df['Voltage_Delta'].mean(), 4)
@@ -1118,7 +1205,9 @@ def generate_summary(df, target_dir):
         "Max Cell Voltage at UV (Cell Number)":[first_vmax_2700_val_vmax],
         "Min Cell Voltage at UV (mV)": [first_vmin_2700_val],
         "Min Cell Voltage at UV (Cell Number)":[first_vmin_2700_val_vmin],
-        "SOC @ UV Triggered (%)":[first_soc_2700_val_soc],
+        "SOC @ UV Triggered (%)":[soc_UV],
+        "Vmax END of The Cycle" : [end_vmax_val],
+        "Vmin END of The Cycle" : [end_vmin_val],
         "MANIFEST": [manifest_val],
         "GITSHA": [gitsha_val], 
         "Tmp Range (ENTIRE CYCLE)": [f"{cycle_min_temp_val} to {cycle_max_temp_val}" if cycle_min_temp_val != "N/A" else "N/A"],
@@ -1134,9 +1223,11 @@ def generate_summary(df, target_dir):
         "Cycle Count BMS (cycles)": [cycle_count_val],
         "MCU Count (cycles)": [mcu_count_val],
         "BALANCING": [balancing_val],
-        "Max Current in Ready Mode (A)": [peak_discharge_ready_val],
+        "Max Current in precharging Mode (A)": [peak_discharge_ready_val],
+        "SOC @Max Current in precharging Mode (%)": [peak_discharge_ready_val_soc],
+
         "DCLOvsPackCurrent": [dclo_vs_pack_current_val],
-        "Avg Discharge Current (A)": [round(-1*avg_discharge_current_val, 2)],
+        #"Avg Discharge Current (A)": [round(-1*avg_discharge_current_val, 2)],
         "Peak Discharge Current (A)": [round(-1*peak_discharge_current_val, 2)],
         "Max Regen Current (A)": [round(max_regen_current_val, 2)],
         "Max Aux (V)": [max_aux_val],
@@ -1180,10 +1271,9 @@ def main():
 
     # 2. AUTO-LOAD DBC FILE (Bundled inside the EXE)
     if getattr(sys, 'frozen', False):
-        # When running as compiled .exe, look in PyInstaller's hidden temp folder
+        
         base_dir = sys._MEIPASS 
     else:
-        # When running as a normal .py script, look in the same folder as the script
         base_dir = os.path.dirname(os.path.abspath(__file__))
         
     dbc_files = glob.glob(os.path.join(base_dir, "*.dbc"))
@@ -1212,17 +1302,45 @@ def main():
             
     grand_pos_ah, grand_neg_ah, grand_drive_wh, grand_regen_wh = 0.0, 0.0, 0.0, 0.0
 
-     
+    from tkinter import ttk
+    
+    parse_win = tk.Toplevel(root)
+    parse_win.title("Parser Dashboard")
+    parse_win.geometry("450x130")
+    parse_win.resizable(False, False)
+    parse_win.tk.call('tk::PlaceWindow', str(parse_win), 'center')
+    
+    lbl_status = tk.Label(parse_win, text="Initializing Parser...", font=("Arial", 10, "bold"))
+    lbl_status.pack(anchor="w", padx=20, pady=(15, 5))
+    
+    progress = ttk.Progressbar(parse_win, orient="horizontal", length=410, mode="determinate")
+    progress.pack(padx=20, pady=5)
+    
+    lbl_stats = tk.Label(parse_win, text="Reading files...", font=("Arial", 9), fg="gray")
+    lbl_stats.pack(anchor="w", padx=20)
+    
+    parse_win.update() 
+    
+    def update_gui(filename, current_line, total_lines):
+        try: 
+            lbl_status.config(text=f"Processing: {filename}")
+            if total_lines > 0:
+                pct = (current_line / total_lines) * 100
+                progress["value"] = pct
+                lbl_stats.config(text=f"Parsed {current_line:,} of {total_lines:,} rows ({pct:.1f}%)")
+            parse_win.update()
+        except:
+            pass
 
     # 2. Parse all TRC files
     for trc in trc_files:
-        p_ah, n_ah, d_wh, r_wh = decode_trc_file(trc, dbc, dbc_signal_order)
+        p_ah, n_ah, d_wh, r_wh = decode_trc_file(trc, dbc, dbc_signal_order, update_gui)
         grand_pos_ah += p_ah
         grand_neg_ah += n_ah
         grand_drive_wh += d_wh
         grand_regen_wh += r_wh
+        
 
-    # 3. Merge parsed CSV data
     search_pattern = os.path.join(target_dir, "*_pcan.csv")
     full_files = glob.glob(search_pattern)
 
@@ -1233,10 +1351,19 @@ def main():
     full_files.sort(key=extract_number)
 
     try:
+        # --- GUI UPDATE: MERGING STAGE ---
+        try:
+            lbl_status.config(text="Merging parsed data...")
+            lbl_stats.config(text="Combining CSV files (This might take a moment)...")
+            progress.config(mode="indeterminate") # Makes the bar bounce left and right
+            progress.start(15) # Speed of the bounce
+            parse_win.update()
+        except: pass
+        # ---------------------------------
+
         print("\nMerging parsed data...")
         csv_merged_full = pd.concat([pd.read_csv(f) for f in full_files], ignore_index=True)
 
-        # Inject global capacities into the first row
         csv_merged_full['Total_Pos_Ah'] = np.nan
         csv_merged_full['Total_Neg_Ah'] = np.nan
         csv_merged_full['Total_Drive_Wh'] = np.nan
@@ -1252,15 +1379,39 @@ def main():
         csv_merged_full.to_csv(final_output_path, index=False)
         print(f"Merged full log saved to: {final_output_path}")
 
+        # --- GUI UPDATE: SUMMARY STAGE ---
+        try:
+            lbl_status.config(text="Starting Summary Generation...")
+            lbl_stats.config(text="Analyzing telemetry and writing Excel file...")
+            parse_win.update()
+        except: pass
+        # ---------------------------------
+
         generate_summary(csv_merged_full, target_dir)
+
+        # --- GUI UPDATE: SUCCESS STAGE ---
+        try:
+            progress.stop()
+            progress.config(mode="determinate", value=100) # Lock bar at 100%
+            lbl_status.config(text="SUCCESS!", fg="green")
+            lbl_stats.config(text="Summary saved successfully. Closing...")
+            parse_win.update()
+            time.sleep(2) # Leave the success message on screen for 2 seconds
+        except: pass
+        # ---------------------------------
 
     except Exception as e:
         print(f"CRITICAL ERROR merging or summarizing data: {e}")
     finally:
-        root.destroy()
+        # Safely destroy windows in the correct order
+        try: parse_win.destroy()
+        except: pass
+        try: root.destroy()
+        except: pass
 
-    
-   
 
 if __name__ == "__main__":
+    if getattr(sys, 'frozen', False): 
+        check_for_updates()
+        
     main()
