@@ -1,0 +1,35 @@
+name: Auto-Build Parser EXE
+
+on:
+  push:
+    tags:
+      - 'v*' # This tells GitHub to only build an EXE when you push a version tag
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Download Code from Repo
+      uses: actions/checkout@v3
+
+    - name: Install Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11' # Best stability for PyInstaller
+
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pandas numpy cantools openpyxl requests pyinstaller
+
+    - name: Build the EXE
+      run: |
+        pyinstaller --onefile --windowed --add-data "MARVEL_DBC_C.dbc;." --hidden-import openpyxl main.py
+
+    - name: Upload to GitHub Releases
+      uses: softprops/action-gh-release@v1
+      with:
+        files: dist/main.exe
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
