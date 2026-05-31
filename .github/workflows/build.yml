@@ -5,6 +5,9 @@ on:
     tags:
       - 'v*' # This tells GitHub to only build an EXE when you push a version tag
 
+permissions:
+  contents: write
+
 jobs:
   build-windows:
     runs-on: windows-latest
