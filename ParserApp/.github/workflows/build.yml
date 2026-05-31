@@ -25,7 +25,7 @@ jobs:
 
     - name: Build the EXE
       run: |
-        pyinstaller --onefile --windowed --add-data "MARVEL_DBC_C.dbc;." --hidden-import openpyxl main.py
+        python -m PyInstaller --clean --onefile --noconsole --add-data "MARVEL_DBC_C.dbc;." --hidden-import pandas --hidden-import openpyxl main.py
 
     - name: Upload to GitHub Releases
       uses: softprops/action-gh-release@v1
