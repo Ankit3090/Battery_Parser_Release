@@ -19,7 +19,7 @@ import time
 
 # --- 1. CONFIGURATION ---
 # Increment this when you are ready to publish a new version on GitHub
-CURRENT_VERSION = "v1.1" 
+CURRENT_VERSION = "v1.2" 
 # Format: "YourGitHubUsername/YourRepoName" 
 REPO = "Ankit3090/Battery_Parser_Release" 
 
@@ -603,16 +603,26 @@ def generate_summary(df, target_dir):
     date_val = ""
     if date_col in df.columns and not df.empty:
         base_date = str(df[date_col].iloc[0]).replace('="', '').replace('"', '').strip()
+        
         if time_col in df.columns:
             first_time = str(df[time_col].iloc[0]).replace('="', '').replace('"', '').strip()
             try:
-                hour = pd.to_datetime(first_time).hour
+                # Combine into a single datetime object to allow easy math
+                dt_obj = pd.to_datetime(f"{base_date} {first_time}", dayfirst=True)
+                hour = dt_obj.hour
+                
                 if 8 <= hour < 18:
-                    date_val = f"{base_date}D"
-                elif hour >= 19 or hour < 6:
-                    date_val = f"{base_date}N"
+                    # Daytime shift
+                    date_val = f"{dt_obj.strftime('%d-%m-%Y')}D"
+                elif hour >= 19:
+                    # Evening/Night shift (before midnight)
+                    date_val = f"{dt_obj.strftime('%d-%m-%Y')}N"
+                elif hour < 6:
+                    # Graveyard shift (after midnight) -> Subtract 1 day for logical night
+                    logical_date = dt_obj - timedelta(days=1)
+                    date_val = f"{logical_date.strftime('%d-%m-%Y')}N"
                 else:
-                    date_val = base_date 
+                    date_val = dt_obj.strftime('%d-%m-%Y') 
             except Exception:
                 date_val = base_date 
         else:
@@ -622,7 +632,15 @@ def generate_summary(df, target_dir):
     stark_fw_val = str(df[stark_fw_col].dropna().iloc[0]) if stark_fw_col in df.columns and not df[stark_fw_col].dropna().empty else ""
     marvel_fw_val = str(df[marvel_fw_col].dropna().iloc[0]) if marvel_fw_col in df.columns and not df[marvel_fw_col].dropna().empty else ""
     config_val = str(df[config_col].dropna().iloc[0]) if config_col in df.columns and not df[config_col].dropna().empty else ""
-    gitsha_val = str(df[gitsha_col].dropna().iloc[0]).replace('.0', '') if gitsha_col in df.columns and not df[gitsha_col].dropna().empty else ""
+    #gitsha_val = str(df[gitsha_col].dropna().iloc[0]).replace('.0', '') if gitsha_col in df.columns and not df[gitsha_col].dropna().empty else ""
+    gitsha_val = ""
+    if gitsha_col in df.columns and not df[gitsha_col].dropna().empty:
+        raw_val = int(float(df[gitsha_col].dropna().iloc[0]))
+        # 2. Convert it to a strict 8-character Hex string ("C33A5178")
+        raw_hex = f"{raw_val:08X}"
+        # 3. Reverse the bytes chunk-by-chunk (C3 3A 51 78 -> 78 51 3A C3)
+        gitsha_val = "".join([raw_hex[i:i+2] for i in range(0, len(raw_hex), 2)][::-1])
+
     manifest_val = str(df[manifest_col].dropna().iloc[0]) if manifest_col in df.columns and not df[manifest_col].dropna().empty else ""
 
     # ==========================================
@@ -721,7 +739,7 @@ def generate_summary(df, target_dir):
     if 'Gear_Mode' in df.columns:
         mode_counts_pct = df['Gear_Mode'].value_counts(normalize=True) * 100
         if not mode_counts_pct.empty:
-            dominant_mode_val = f"{mode_counts_pct.index[0]} ({mode_counts_pct.iloc[0]:.1f}%)"
+            dominant_mode_val = f"{mode_counts_pct.index[0]}"
             
     if "Unknown" in dominant_mode_val or dominant_mode_val == "N/A":
         if 'MCU_gear' in df.columns:
@@ -1008,6 +1026,7 @@ def generate_summary(df, target_dir):
     if precharge_fail_col in df.columns:
         fail_mask = (df[precharge_fail_col] == 1) | (df[precharge_fail_col] == True)
         precharge_fail_val = "Yes" if fail_mask.any() else "No"
+    
 
     if vcu_cmd_col in df.columns:
         if (df[vcu_cmd_col] == 1).any():
@@ -1043,16 +1062,20 @@ def generate_summary(df, target_dir):
                     prev_state = s_int
         if condensed_states:
             transition_val = "1->2->3 Not Attempted"
+            precharge_prcess = "Not Attempted"
             for i in range(len(condensed_states)):
                 if condensed_states[i] == 1:
                     if i + 1 < len(condensed_states) and condensed_states[i+1] == 2:
                         if i + 2 < len(condensed_states) and condensed_states[i+2] == 3:
                             transition_val = "Valid (1->2->3)"
+                            precharge_prcess= "Pass"
                             break 
                         elif i + 2 < len(condensed_states):
                             transition_val = f"Failed (1->2->{condensed_states[i+2]}) @ {condensed_socs[i+2]:.1f}% SOC"
+                            precharge_prcess = "Failed"
                     elif i + 1 < len(condensed_states):
                         transition_val = f"Failed (1->{condensed_states[i+1]}) @ {condensed_socs[i+1]:.1f}% SOC"
+                        precharge_prcess = "Failed"
 
     # --- ALL ERRORS ---
     active_errors = []
@@ -1203,8 +1226,8 @@ def generate_summary(df, target_dir):
         "Min Cell Voltage at UV (mV)": [first_vmin_2700_val],
         "Min Cell Voltage at UV (Cell Number)":[first_vmin_2700_val_vmin],
         "SOC @ UV Triggered (%)":[soc_UV],
-        "Vmax END of The Cycle" : [end_vmax_val],
-        "Vmin END of The Cycle" : [end_vmin_val],
+        #"Vmax END of The Cycle" : [end_vmax_val],
+        #"Vmin END of The Cycle" : [end_vmin_val],
         "MANIFEST": [manifest_val],
         "GITSHA": [gitsha_val], 
         "Tmp Range (ENTIRE CYCLE)": [f"{cycle_min_temp_val} to {cycle_max_temp_val}" if cycle_min_temp_val != "N/A" else "N/A"],
@@ -1213,14 +1236,14 @@ def generate_summary(df, target_dir):
         "Flag Full Charged": [flag_full_charged_val],
         "SoC Delta (Max jump/drop)": [f"Jump: {max_soc_jump_val} / Drop: {max_soc_drop_val}"],
         "Shutdown Routine Sec": [shutdown_comm_val],
-        "Precharge Process Check": [precharge_fail_val],
+        "Precharge Process Check": [precharge_prcess],
         "1st Vmin(@SOC) 2700mV": [first_soc_2700_val_soc],
         "Contactor Weld": [contactor_weld_val],
         "State Transition BMS Behaviour": [transition_val],
         "Cycle Count BMS (cycles)": [cycle_count_val],
-        "MCU Count (cycles)": [mcu_count_val],
+        "MCU Counter": [mcu_count_val],
         "BALANCING": [balancing_val],
-        "Max Current in precharging Mode (A)": [peak_discharge_ready_val],
+        "Max Current in precharging Mode (A)": [-1*peak_discharge_ready_val],
         "SOC @Max Current in precharging Mode (%)": [peak_discharge_ready_val_soc],
 
         "DCLOvsPackCurrent": [dclo_vs_pack_current_val],
@@ -1233,10 +1256,10 @@ def generate_summary(df, target_dir):
         "Min AUX_SoC (%)": [min_aux_val_soc],
         "PCB Temperature MIN (deg C)": [pcb_temp_min_val],
         "PCB Temperature MAX (deg C)": [pcb_temp_max_val],
-        #"PCB Temp Delta on Same Instance (deg C)": [pcb_temp_delta_val],
-        #"All Error Efuse Validation": [all_errors_val],
-        #"Vehicle State": [vehicle_state_val],
-        #"STARK F/W": [stark_fw_val]
+        "PCB Temp Delta on Same Instance (deg C)": [pcb_temp_delta_val],
+        "All Error Efuse Validation": [all_errors_val],
+        "Vehicle State": [vehicle_state_val],
+        "STARK F/W": [stark_fw_val]
     }
     
     summary_df = pd.DataFrame(summary_data_horizontal)
@@ -1359,8 +1382,33 @@ def main():
         # ---------------------------------
 
         print("\nMerging parsed data...")
+        #csv_merged_full = pd.concat([pd.read_csv(f) for f in full_files], ignore_index=True)
+        print("\nMerging and aligning data chronologically...")
+        # 1. Stack all the files together (ignoring the file names)
         csv_merged_full = pd.concat([pd.read_csv(f) for f in full_files], ignore_index=True)
 
+        # 2. Sort by True Chronological Timeline (Date + Time)
+        if 'Date' in csv_merged_full.columns and 'Time' in csv_merged_full.columns:
+            print("Aligning timeline seamlessly across all files...")
+            
+            # Strip the Excel string formatting ('="15-05-2026"' -> '15-05-2026')
+            clean_date = csv_merged_full['Date'].astype(str).str.replace('="', '', regex=False).str.replace('"', '', regex=False)
+            clean_time = csv_merged_full['Time'].astype(str).str.replace('="', '', regex=False).str.replace('"', '', regex=False)
+            
+            # Create a temporary high-precision Datetime column
+            csv_merged_full['Temp_Datetime'] = pd.to_datetime(
+                clean_date + ' ' + clean_time, 
+                format='%d-%m-%Y %H:%M:%S.%f', 
+                errors='coerce'
+            )
+            
+            # Sort the entire massive dataframe so part3 seamlessly follows part1
+            csv_merged_full = csv_merged_full.sort_values(by='Temp_Datetime').reset_index(drop=True)
+            
+            # Drop the temporary column so it doesn't end up in your final CSV
+            csv_merged_full = csv_merged_full.drop(columns=['Temp_Datetime'])
+
+        # 3. INJECT TOTALS AT ROW 0 (Must happen AFTER sorting!)
         csv_merged_full['Total_Pos_Ah'] = np.nan
         csv_merged_full['Total_Neg_Ah'] = np.nan
         csv_merged_full['Total_Drive_Wh'] = np.nan

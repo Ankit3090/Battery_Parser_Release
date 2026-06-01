@@ -468,7 +468,7 @@ BO_ 1029 Timestamp: 8 Laptop
  SG_ day : 48|8@1+ (1,0) [0|0] "" Vector__XXX
 
 BO_ 1969 GITSHA: 8 Vector__XXX
- SG_ gitsha : 8|24@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ gitsha : 8|32@1+ (1,0) [0|0] "" Vector__XXX
 
 BO_ 1542 AUX_battery: 8 Vector__XXX
  SG_ Aux_charging_flag : 7|8@0+ (1,0) [0|0] "" Vector__XXX
