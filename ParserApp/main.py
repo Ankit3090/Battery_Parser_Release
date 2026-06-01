@@ -109,17 +109,26 @@ del "%~f0"
     with open(bat_path, "w") as f:
         f.write(bat_script)
         
-    # --- FIX: Strip PyInstaller environment variables before launching ---
+    # --- ROBUST ENVIRONMENT SCRUBBER ---
     clean_env = os.environ.copy()
+    
+    # 1. Strip the direct PyInstaller variables
     clean_env.pop('_MEIPASS2', None)
     clean_env.pop('_MEIPASS', None)
+    
+    # 2. Scrub the ghost _MEI folder out of the Windows PATH
+    if hasattr(sys, '_MEIPASS'):
+        if 'PATH' in clean_env:
+            path_parts = clean_env['PATH'].split(os.pathsep)
+            # Filter out the old temporary folder
+            clean_paths = [p for p in path_parts if sys._MEIPASS not in p]
+            clean_env['PATH'] = os.pathsep.join(clean_paths)
 
-    # Execute the batch script in a new background process with the clean environment
+    # Execute the batch script with the completely sterilized environment
     subprocess.Popen([bat_path], shell=True, env=clean_env)
     
     # Immediately exit this Python script
     sys.exit(0)
-
 
 # --- 3. YOUR MAIN APPLICATION LOGIC ---
 def launch_telemetry_dashboard():
