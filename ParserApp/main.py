@@ -19,7 +19,7 @@ import time
 
 # --- 1. CONFIGURATION ---
 # Increment this when you are ready to publish a new version on GitHub
-CURRENT_VERSION = "v1.8" 
+CURRENT_VERSION = "v1.1.0" 
 # Format: "YourGitHubUsername/YourRepoName" 
 REPO = "Ankit3090/Battery_Parser_Release" 
 
@@ -1235,7 +1235,7 @@ def generate_summary(df, target_dir):
         "PCB Temperature MAX (deg C)": [pcb_temp_max_val],
         "PCB Temp Delta on Same Instance (deg C)": [pcb_temp_delta_val],
         "All Error Efuse Validation": [all_errors_val],
-        "Vehicle State": [vehicle_state_val],
+        #"Vehicle State": [vehicle_state_val],
         #"STARK F/W": [stark_fw_val]
     }
     
