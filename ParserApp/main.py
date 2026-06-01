@@ -1233,8 +1233,8 @@ def generate_summary(df, target_dir):
         "Min AUX_SoC (%)": [min_aux_val_soc],
         "PCB Temperature MIN (deg C)": [pcb_temp_min_val],
         "PCB Temperature MAX (deg C)": [pcb_temp_max_val],
-        "PCB Temp Delta on Same Instance (deg C)": [pcb_temp_delta_val],
-        "All Error Efuse Validation": [all_errors_val],
+        #"PCB Temp Delta on Same Instance (deg C)": [pcb_temp_delta_val],
+        #"All Error Efuse Validation": [all_errors_val],
         #"Vehicle State": [vehicle_state_val],
         #"STARK F/W": [stark_fw_val]
     }
