@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 import glob
 import tkinter as tk
 from tkinter import filedialog
+from tkinter import ttk
 import warnings
 import requests
 import subprocess
@@ -125,15 +126,6 @@ def launch_telemetry_dashboard():
     print(f"--- High-Performance Data Visualization Dashboard ({CURRENT_VERSION}) ---")
     print("Loading drive cycle telemetry...")
     # Your custom GUI code goes here...
-
-
-# --- 4. EXECUTION SEQUENCE ---
-if __name__ == "__main__":
-    if getattr(sys, 'frozen', False): 
-        check_for_updates()
-        
-    # If no updates were found (or if the update check finished), launch the main app
-    launch_telemetry_dashboard()
 
 # =============================================================================
 # --- 0. TERMINAL CLEANUP (Professional Output) ---
@@ -1240,7 +1232,7 @@ def generate_summary(df, target_dir):
         "PCB Temp Delta on Same Instance (deg C)": [pcb_temp_delta_val],
         "All Error Efuse Validation": [all_errors_val],
         "Vehicle State": [vehicle_state_val],
-        #"STARK F/W": [stark_fw_val]
+        "STARK F/W": [stark_fw_val]
     }
     
     summary_df = pd.DataFrame(summary_data_horizontal)
