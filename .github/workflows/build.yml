@@ -29,7 +29,7 @@ jobs:
     - name: Build the EXE
       run: |
         cd ParserApp
-        pyinstaller --onefile --noconsole --add-data "MARVEL_DBC_C.dbc;." --hidden-import pandas --hidden-import openpyxl main.py
+        pyinstaller --onefile  --noconsole --add-data "MARVEL_DBC_C.dbc;." --hidden-import pandas --hidden-import openpyxl main.py
 
     - name: Upload to GitHub Releases
       uses: softprops/action-gh-release@v1

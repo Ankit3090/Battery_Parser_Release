@@ -19,7 +19,7 @@ import time
 
 # --- 1. CONFIGURATION ---
 # Increment this when you are ready to publish a new version on GitHub
-CURRENT_VERSION = "v1.3" 
+CURRENT_VERSION = "v1.4" 
 # Format: "YourGitHubUsername/YourRepoName" 
 REPO = "Ankit3090/Battery_Parser_Release" 
 
@@ -99,7 +99,6 @@ def apply_update(new_exe_path):
     current_exe = sys.executable  
     bat_path = "updater.bat"
     
-    # This batch script waits 2 seconds, deletes the old EXE, renames the new one, and restarts it.
     bat_script = f"""@echo off
 timeout /t 2 /nobreak > NUL
 del "{current_exe}"
@@ -110,9 +109,15 @@ del "%~f0"
     with open(bat_path, "w") as f:
         f.write(bat_script)
         
-    # Execute the batch script in a new background process
-    subprocess.Popen([bat_path], shell=True)
-    # Immediately exit this Python script so Windows releases the file lock on the EXE
+    # --- FIX: Strip PyInstaller environment variables before launching ---
+    clean_env = os.environ.copy()
+    clean_env.pop('_MEIPASS2', None)
+    clean_env.pop('_MEIPASS', None)
+
+    # Execute the batch script in a new background process with the clean environment
+    subprocess.Popen([bat_path], shell=True, env=clean_env)
+    
+    # Immediately exit this Python script
     sys.exit(0)
 
 
