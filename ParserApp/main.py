@@ -986,6 +986,7 @@ def generate_summary(df, target_dir):
                 pcb_temp_delta_val = valid_pcb[pcb_temp_delta_col].max()
 
     # --- IMBALANCE METRICS ---
+    max_imb_low_soc = "N/A"
     if imbalance_col in df.columns and bms_soc_col in df.columns:
         low_soc_df = df[df[bms_soc_col] < 50]
         if not low_soc_df.empty:
@@ -1380,12 +1381,22 @@ def main():
             parse_win.update()
         except: pass
         # ---------------------------------
-
-        print("\nMerging parsed data...")
-        #csv_merged_full = pd.concat([pd.read_csv(f) for f in full_files], ignore_index=True)
+        
         print("\nMerging and aligning data chronologically...")
-        # 1. Stack all the files together (ignoring the file names)
-        csv_merged_full = pd.concat([pd.read_csv(f) for f in full_files], ignore_index=True)
+        # 1. Stack all the files together AND track the source file
+        df_list = []
+        for f in full_files:
+            temp_df = pd.read_csv(f)
+            temp_df['Source_Log'] = os.path.basename(f) # Track which file it came from
+            df_list.append(temp_df)
+            
+        csv_merged_full = pd.concat(df_list, ignore_index=True)
+
+        # --- THE ZERO KILLER ---
+        # Convert fake hardware bootup 0s to NaN (only for sensors)
+        sensor_cols = [c for c in csv_merged_full.columns if 'CellVoltage' in c or 'Pack_Voltage' in c or 'Temperature' in c]
+        csv_merged_full[sensor_cols] = csv_merged_full[sensor_cols].replace(0, np.nan)
+        csv_merged_full = csv_merged_full.replace("", np.nan) # Catch any leftover blanks
 
         # 2. Sort by True Chronological Timeline (Date + Time)
         if 'Date' in csv_merged_full.columns and 'Time' in csv_merged_full.columns:
@@ -1407,8 +1418,24 @@ def main():
             
             # Drop the temporary column so it doesn't end up in your final CSV
             csv_merged_full = csv_merged_full.drop(columns=['Temp_Datetime'])
+            
+            # --- STRETCH THE DATA ---
+            # Now that fake 0s are gone and time is sorted, stretch the real data across the gaps
+            csv_merged_full = csv_merged_full.ffill().bfill()
 
-        # 3. INJECT TOTALS AT ROW 0 (Must happen AFTER sorting!)
+            # --- THE BOOT-UP TRIMMER ---
+            if 'SoC' in csv_merged_full.columns:
+                print("Trimming hardware boot-up sequence...")
+                # Find the first row where SoC is greater than 0
+                valid_soc_mask = pd.to_numeric(csv_merged_full['SoC'], errors='coerce') > 0
+                
+                if valid_soc_mask.any():
+                    # Get the index of that very first valid SoC reading
+                    first_valid_idx = valid_soc_mask.idxmax()
+                    # Slice the dataframe from that exact moment to the end
+                    csv_merged_full = csv_merged_full.iloc[first_valid_idx:].reset_index(drop=True)
+
+        # 3. INJECT TOTALS AT ROW 0 (Must happen AFTER sorting and stretching!)
         csv_merged_full['Total_Pos_Ah'] = np.nan
         csv_merged_full['Total_Neg_Ah'] = np.nan
         csv_merged_full['Total_Drive_Wh'] = np.nan
@@ -1423,7 +1450,7 @@ def main():
         final_output_path = os.path.join(target_dir, "pcan_merged_full.csv")
         csv_merged_full.to_csv(final_output_path, index=False)
         print(f"Merged full log saved to: {final_output_path}")
-
+    
         # --- GUI UPDATE: SUMMARY STAGE ---
         try:
             lbl_status.config(text="Starting Summary Generation...")
