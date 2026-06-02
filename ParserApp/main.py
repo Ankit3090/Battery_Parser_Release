@@ -1243,7 +1243,7 @@ def generate_summary(df, target_dir):
         "Cycle Count BMS (cycles)": [cycle_count_val],
         "MCU Counter": [mcu_count_val],
         "BALANCING": [balancing_val],
-        "Max Current in precharging Mode (A)": [-1*peak_discharge_ready_val],
+        "Max Current in precharging Mode (A)": [peak_discharge_ready_val],
         "SOC @Max Current in precharging Mode (%)": [peak_discharge_ready_val_soc],
 
         "DCLOvsPackCurrent": [dclo_vs_pack_current_val],
