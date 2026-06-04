@@ -19,7 +19,7 @@ import time
 
 # --- 1. CONFIGURATION ---
 # Increment this when you are ready to publish a new version on GitHub
-CURRENT_VERSION = "v1.6" 
+CURRENT_VERSION = "v1.7" 
 # Format: "YourGitHubUsername/YourRepoName" 
 REPO = "Ankit3090/Battery_Parser_Release" 
 
@@ -487,11 +487,12 @@ def decode_trc_file(trc_path, dbc, dbc_signal_order, gui_callback=None):
     df = df.bfill().fillna(0)
     df = df.infer_objects()
     df = df.copy()
+    #Hardrive saving logic
+    #output_csv = trc_path.replace(".trc", "_pcan.csv")
+    #df.to_csv(output_csv, index=False)
     
-    output_csv = trc_path.replace(".trc", "_pcan.csv")
-    df.to_csv(output_csv, index=False)
-    
-    return final_pos_ah, final_neg_ah, final_drive_wh, final_regen_wh
+    # Pass the dataframe directly back to RAM along with the totals
+    return df, final_pos_ah, final_neg_ah, final_drive_wh, final_regen_wh
 
 # =============================================================================
 # --- 3. SUMMARIZER LOGIC ---
@@ -718,56 +719,26 @@ def generate_summary(df, target_dir):
     if orig_regen_mask.any():
         max_regen_current_val = df.loc[orig_regen_mask, current_col].max()
         
-    if bms_state_col in df.columns:
-        ready_mask = df[bms_state_col] == 2
-        if ready_mask.any():
-            ready_df = df[ready_mask]
-            min_val = ready_df[current_col].min()
-            if pd.notna(min_val) and min_val < 0:
-                min_idx = ready_df[current_col].idxmin()
-                soc_at_min = df.loc[min_idx, soc_col] if soc_col in df.columns else 0
-                peak_discharge_ready_val = f"{round(min_val, 2)}"
-                peak_discharge_ready_val_soc= soc_at_min
 
-    # --- RANGE, ODO & SOC EXTRACTION ---
-    if odo_col in df.columns and not df[odo_col].dropna().empty:
-        valid_odo = df[odo_col].dropna()
-        start_odo_val = round(valid_odo.iloc[0], 2)
-        end_odo_val = round(valid_odo.iloc[-1], 2)
-        total_range_km = end_odo_val - start_odo_val
-        
-    if 'Gear_Mode' in df.columns:
-        mode_counts_pct = df['Gear_Mode'].value_counts(normalize=True) * 100
-        if not mode_counts_pct.empty:
-            dominant_mode_val = f"{mode_counts_pct.index[0]}"
-            
-    if "Unknown" in dominant_mode_val or dominant_mode_val == "N/A":
-        if 'MCU_gear' in df.columns:
-            mcu_counts_pct = df['MCU_gear'].value_counts(normalize=True) * 100
-            if not mcu_counts_pct.empty:
-                dominant_mode_val = f"{mcu_counts_pct.index[0]}"
 
-    if bms_soc_col in df.columns and not df.empty:
-        clean_bms_soc = df[bms_soc_col].rolling(window=10, min_periods=1).median()
-        initial_soc_val = f"{clean_bms_soc.iloc[0]:.2f}"
-        final_soc_val = f"{clean_bms_soc.iloc[-1]:.2f}"
-        soc_diff = clean_bms_soc.diff()
-        
-        max_jump = soc_diff.max()
-        if pd.notna(max_jump) and max_jump > 0.1:
-            jump_idx = soc_diff.idxmax()
-            idx_pos = clean_bms_soc.index.get_loc(jump_idx)
-            val_to = clean_bms_soc.loc[jump_idx]
-            val_from = clean_bms_soc.iloc[idx_pos - 1] if idx_pos > 0 else 0
-            max_soc_jump_val = f"{max_jump:.1f}% ({val_from:.1f}% -> {val_to:.1f}%)"
+# Assuming 'df' is your dataframe and 'bms_soc_col' is your column name
+    raw_soc = pd.to_numeric(df[bms_soc_col], errors='coerce')
 
-        max_drop = soc_diff.min()
-        if pd.notna(max_drop) and max_drop < -0.1:
-            drop_idx = soc_diff.idxmin()
-            idx_pos = clean_bms_soc.index.get_loc(drop_idx)
-            val_to = clean_bms_soc.loc[drop_idx]
-            val_from = clean_bms_soc.iloc[idx_pos - 1] if idx_pos > 0 else 0
-            max_soc_drop_val = f"{abs(max_drop):.1f}% ({val_from:.1f}% -> {val_to:.1f}%)"
+# 1. Safely align the Before, After, and Difference values side-by-side
+    diff_df = pd.DataFrame({
+        'soc_from': raw_soc.shift(1),
+        'soc_to': raw_soc,
+        'diff': raw_soc.diff()}).dropna() # Drops the first row (which has no 'before' value)
+
+# 2. FIND THE MAX JUMP (The highest positive number)
+    if not diff_df.empty and diff_df['diff'].max() > 0:
+        worst_jump = diff_df.loc[diff_df['diff'].idxmax()]
+        max_soc_jump_val = f"{worst_jump['diff']:.2f}% ({worst_jump['soc_from']:.2f}% -> {worst_jump['soc_to']:.2f}%)"
+
+# 3. FIND THE MAX DROP (The lowest negative number)
+    if not diff_df.empty and diff_df['diff'].min() < 0:
+        worst_drop = diff_df.loc[diff_df['diff'].idxmin()]
+        max_soc_drop_val = f"{abs(worst_drop['diff']):.2f}% ({worst_drop['soc_from']:.2f}% -> {worst_drop['soc_to']:.2f}%)"
 
     # --- DIRECT PACK CAPACITY EXTRACTION ---
     if 'PackCapacity' in df.columns and not df['PackCapacity'].dropna().empty:
@@ -1231,7 +1202,8 @@ def generate_summary(df, target_dir):
         #"Vmin END of The Cycle" : [end_vmin_val],
         "MANIFEST": [manifest_val],
         "GITSHA": [gitsha_val], 
-        "Tmp Range (ENTIRE CYCLE)": [f"{cycle_min_temp_val} to {cycle_max_temp_val}" if cycle_min_temp_val != "N/A" else "N/A"],
+        "MIN Cell Temp(ENTIRE CYCLE)": [f"{cycle_min_temp_val}"],
+        "MAX Cell Temp(ENTIRE CYCLE)": [f"{cycle_max_temp_val}"],
         "Avg Temp (deg C)": [avg_temp_val],
         "BMS STATE": [bms_state_val],
         "Flag Full Charged": [flag_full_charged_val],
@@ -1249,7 +1221,7 @@ def generate_summary(df, target_dir):
 
         "DCLOvsPackCurrent": [dclo_vs_pack_current_val],
         #"Avg Discharge Current (A)": [round(-1*avg_discharge_current_val, 2)],
-        "Peak Discharge Current (A)": [round(-1*peak_discharge_current_val, 2)],
+        #"Peak Discharge Current (A)": [round(-1*peak_discharge_current_val, 2)],
         "Max Regen Current (A)": [round(max_regen_current_val, 2)],
         "Max Aux (V)": [max_aux_val],
         "Max Aux_SoC (%)": [max_aux_val_soc],
@@ -1353,44 +1325,45 @@ def main():
         except:
             pass
 
-    # 2. Parse all TRC files
+    # 2. Parse all TRC files straight into RAM
+    master_df_list = []
+    
     for trc in trc_files:
-        p_ah, n_ah, d_wh, r_wh = decode_trc_file(trc, dbc, dbc_signal_order, update_gui)
+        # Catch the dataframe (parsed_df) along with the math totals
+        parsed_df, p_ah, n_ah, d_wh, r_wh = decode_trc_file(trc, dbc, dbc_signal_order, update_gui)
+        
         grand_pos_ah += p_ah
         grand_neg_ah += n_ah
         grand_drive_wh += d_wh
         grand_regen_wh += r_wh
         
-
-    search_pattern = os.path.join(target_dir, "*_pcan.csv")
-    full_files = glob.glob(search_pattern)
-
-    if not full_files: 
-        print("\n[CRITICAL ERROR] No intermediate CSV files were generated.")
-        return
+        # Track the source and save the dataframe to our RAM list
+        if parsed_df is not None and not parsed_df.empty:
+            parsed_df['Source_Log'] = os.path.basename(trc)
+            master_df_list.append(parsed_df)
         
-    full_files.sort(key=extract_number)
+
+
+    # Check if our RAM list is empty instead of checking the hard drive
+    if not master_df_list: 
+        print("\n[CRITICAL ERROR] No valid data was parsed from the TRC files.")
+        return
+    
 
     try:
         # --- GUI UPDATE: MERGING STAGE ---
         try:
             lbl_status.config(text="Merging parsed data...")
-            lbl_stats.config(text="Combining CSV files (This might take a moment)...")
-            progress.config(mode="indeterminate") # Makes the bar bounce left and right
-            progress.start(15) # Speed of the bounce
+            lbl_stats.config(text="Combining data in RAM (This might take a moment)...")
+            progress.config(mode="indeterminate")
+            progress.start(15)
             parse_win.update()
         except: pass
         # ---------------------------------
         
-        print("\nMerging and aligning data chronologically...")
-        # 1. Stack all the files together AND track the source file
-        df_list = []
-        for f in full_files:
-            temp_df = pd.read_csv(f)
-            temp_df['Source_Log'] = os.path.basename(f) # Track which file it came from
-            df_list.append(temp_df)
-            
-        csv_merged_full = pd.concat(df_list, ignore_index=True)
+        print("\nMerging and aligning data chronologically from RAM...")
+        # Instantly stack all dataframes sitting in RAM
+        csv_merged_full = pd.concat(master_df_list, ignore_index=True)
 
         # --- THE ZERO KILLER ---
         # Convert fake hardware bootup 0s to NaN (only for sensors)
@@ -1403,8 +1376,8 @@ def main():
             print("Aligning timeline seamlessly across all files...")
             
             # Strip the Excel string formatting ('="15-05-2026"' -> '15-05-2026')
-            clean_date = csv_merged_full['Date'].astype(str).str.replace('="', '', regex=False).str.replace('"', '', regex=False)
-            clean_time = csv_merged_full['Time'].astype(str).str.replace('="', '', regex=False).str.replace('"', '', regex=False)
+            clean_date = csv_merged_full['Date'].astype(str).str.slice(2, -1)
+            clean_time = csv_merged_full['Time'].astype(str).str.slice(2, -1)
             
             # Create a temporary high-precision Datetime column
             csv_merged_full['Temp_Datetime'] = pd.to_datetime(
@@ -1420,8 +1393,9 @@ def main():
             csv_merged_full = csv_merged_full.drop(columns=['Temp_Datetime'])
             
             # --- STRETCH THE DATA ---
-            # Now that fake 0s are gone and time is sorted, stretch the real data across the gaps
-            csv_merged_full = csv_merged_full.ffill().bfill()
+            # Isolate only the numeric columns to save massive amounts of RAM and time
+            float_cols = csv_merged_full.select_dtypes(include=['float64', 'float32']).columns
+            csv_merged_full[float_cols] = csv_merged_full[float_cols].ffill().bfill()
 
             # --- THE BOOT-UP TRIMMER ---
             if 'SoC' in csv_merged_full.columns:
