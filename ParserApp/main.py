@@ -19,7 +19,7 @@ import time
 
 # --- 1. CONFIGURATION ---
 # Increment this when you are ready to publish a new version on GitHub
-CURRENT_VERSION = "v1.7" 
+CURRENT_VERSION = "v1.8" 
 # Format: "YourGitHubUsername/YourRepoName" 
 REPO = "Ankit3090/Battery_Parser_Release" 
 
@@ -682,6 +682,17 @@ def generate_summary(df, target_dir):
             start_voltage_val = round(float(valid_v.iloc[0]), 2)
             end_voltage_val = round(float(valid_v.iloc[-1]), 2)
 
+    if 'Gear_Mode' in df.columns:
+        mode_counts_pct = df['Gear_Mode'].value_counts(normalize=True) * 100
+        if not mode_counts_pct.empty:
+            dominant_mode_val = f"{mode_counts_pct.index[0]} ({mode_counts_pct.iloc[0]:.1f}%)"
+            
+    if "Unknown" in dominant_mode_val or dominant_mode_val == "N/A":
+        if 'MCU_gear' in df.columns:
+            mcu_counts_pct = df['MCU_gear'].value_counts(normalize=True) * 100
+            if not mcu_counts_pct.empty:
+                dominant_mode_val = f"{mcu_counts_pct.index[0]}"
+
     # --- BMS STATE LOGIC ---
     bms_state_val = "N/A"
     if bms_state_col in df.columns and not df[bms_state_col].dropna().empty:
@@ -722,7 +733,16 @@ def generate_summary(df, target_dir):
 
 
 # Assuming 'df' is your dataframe and 'bms_soc_col' is your column name
+    # Assuming 'df' is your dataframe and 'bms_soc_col' is your column name
     raw_soc = pd.to_numeric(df[bms_soc_col], errors='coerce')
+    
+    # --- RESTORED: START & END SOC ---
+    valid_socs = raw_soc.dropna()
+    if not valid_socs.empty:
+        initial_soc_val = f"{valid_socs.iloc[0]:.2f}"
+        final_soc_val = f"{valid_socs.iloc[-1]:.2f}"
+
+    # 1. Safely align the Before, After, and Difference values side-by-side
 
 # 1. Safely align the Before, After, and Difference values side-by-side
     diff_df = pd.DataFrame({
@@ -769,6 +789,16 @@ def generate_summary(df, target_dir):
         # Initialize defaults
         range_till_10_val = "Did not reach 10%"
         range_below_0_val = 0.0
+
+    # ==========================================
+    # ---ODOMETER & RANGE ---
+    # ==========================================
+    if odo_col in df.columns:
+        valid_odo = pd.to_numeric(df[df[odo_col] != 0][odo_col], errors='coerce').dropna()
+        if not valid_odo.empty:
+            start_odo_val = round(float(valid_odo.iloc[0]), 2)
+            end_odo_val = round(float(valid_odo.iloc[-1]), 2)
+            total_range_km = round(end_odo_val - start_odo_val, 2)
 
         # ==========================================================
         # --- 1. RANGE TILL 10% SOC ---
